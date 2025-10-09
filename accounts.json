@@ -1,10 +1,10 @@
 [
   {
-    "name": "Akun_Utama_Tia",
-    "cookies": "cf_clearance=[NILAI_CLEARANCE_AKUN_1]; __Secure-authjs.session-token=[NILAI_TOKEN_AKUN_1]"
+    "name": "Akun_Utama_",
+    "cookies": ""
   },
   {
     "name": "Akun_Kedua_Bos",
-    "cookies": "cf_clearance=[NILAI_CLEARANCE_AKUN_2]; __Secure-authjs.session-token=[NILAI_TOKEN_AKUN_2]"
+    "cookies": ""
   }
 ]
