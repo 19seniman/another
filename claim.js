@@ -1,49 +1,44 @@
-// --- claim.js ---
+// --- claim.js (Multibot Version) ---
 
-// Import modul yang dibutuhkan
 const fs = require('fs');
-const fetch = require('node-fetch'); // Perlu instalasi: npm install node-fetch
+const fetch = require('node-fetch'); 
 
 // --- Konfigurasi File dan URL ---
-const COOKIES_FILE = "cookies.txt"; // Nama file yang diperbarui
+const ACCOUNTS_FILE = "accounts.json"; // Nama file yang diperbarui
 const ACCOUNT_URL = "https://unlucid.ai/api/account";
 const CLAIM_URL = "https://unlucid.ai/api/claim_free_gems";
 // ------------------------------------
 
 /**
- * Membaca dan mengembalikan string cookies dari cookies.txt.
- * @returns {string | null} String cookies gabungan atau null jika gagal.
+ * Membaca dan mengembalikan daftar akun dari accounts.json.
+ * @returns {Array | null} Daftar akun atau null jika gagal.
  */
-function loadAuthCookies() {
+function loadAccounts() {
     try {
-        if (!fs.existsSync(COOKIES_FILE)) {
-            console.error(`❌ ERROR: File '${COOKIES_FILE}' tidak ditemukan.`);
-            console.error("Pastikan Anda telah membuat file dan memasukkan cookie gabungan (cf_clearance dan session-token).");
+        if (!fs.existsSync(ACCOUNTS_FILE)) {
+            console.error(`❌ ERROR: File '${ACCOUNTS_FILE}' tidak ditemukan.`);
+            console.error("Pastikan Anda telah membuat file accounts.json.");
             return null;
         }
-        // Membaca seluruh konten file sebagai string
-        const cookiesString = fs.readFileSync(COOKIES_FILE, 'utf8').trim();
-        if (!cookiesString) {
-            console.error(`❌ ERROR: File '${COOKIES_FILE}' kosong.`);
+        const jsonString = fs.readFileSync(ACCOUNTS_FILE, 'utf8').trim();
+        const accounts = JSON.parse(jsonString);
+        if (!Array.isArray(accounts) || accounts.length === 0) {
+            console.error(`❌ ERROR: File '${ACCOUNTS_FILE}' tidak valid atau kosong.`);
             return null;
         }
-        return cookiesString; // Mengembalikan seluruh string cookie
+        return accounts; 
     } catch (e) {
-        console.error(`❌ ERROR: Gagal membaca file ${COOKIES_FILE}: ${e.message}`);
+        console.error(`❌ ERROR: Gagal membaca/memparsing file ${ACCOUNTS_FILE}: ${e.message}`);
         return null;
     }
 }
 
 /**
  * Membuat objek Header, mengirim string cookie penuh melalui Header 'Cookie'.
- * @param {string} cookiesString Seluruh string cookies dari cookies.txt.
- * @returns {object} Objek Header.
  */
 function getHeaders(cookiesString) {
     return {
-        // SOLUSI 401: Mengirim seluruh string melalui Header 'Cookie'
         'Cookie': cookiesString, 
-        
         'Accept': 'application/json',
         'Content-Type': 'application/json',
         'User-Agent': 'ScriptKlaimGemsAmanJS/1.0',
@@ -64,28 +59,26 @@ function formatTime(timestampMs) {
 }
 
 /**
- * Fungsi utama untuk memeriksa waktu klaim dan melakukan klaim jika sudah waktunya.
+ * Melakukan pengecekan dan klaim untuk satu akun.
  */
-async function checkAndClaimGems() {
-    // --- 0. MUAT COOKIES ---
-    const cookiesString = loadAuthCookies();
-    if (!cookiesString) {
-        return;
-    }
-
-    const HEADERS = getHeaders(cookiesString);
+async function processAccount(account) {
+    const { name, cookies } = account;
+    const HEADERS = getHeaders(cookies);
     const now = new Date();
-    console.log(`[${formatTime(now.getTime())}] Memulai pengecekan status...`);
-    
+
+    console.log(`\n================================================`);
+    console.log(`[${formatTime(now.getTime())}] 🤖 MEMPROSES AKUN: ${name}`);
+    console.log(`================================================`);
+
     // --- 1. MEMERIKSA STATUS AKUN (/api/account) ---
     let currentGems = 0;
     
     try {
         const response = await fetch(ACCOUNT_URL, { headers: HEADERS });
+        const data = await response.json();
         
-        // Cek Error Otentikasi/Akses (401, 403, dll.)
         if (response.status === 401 || response.status === 403) {
-            console.error(`❌ GAGAL: Error HTTP ${response.status} (Unauthorized/Forbidden). Cookies Anda tidak valid, kedaluwarsa, atau tidak lengkap.`);
+            console.error(`❌ GAGAL: Error HTTP ${response.status} (Unauthorized/Forbidden). Cookies kedaluwarsa atau salah.`);
             return;
         }
         if (!response.ok) {
@@ -93,29 +86,23 @@ async function checkAndClaimGems() {
             return;
         }
         
-        const data = await response.json();
         const accountData = data.user || {};
-        
         currentGems = accountData.gems || 0;
         const nextClaimTimestampMs = accountData.nextFreeGemsAt;
-        
-        console.log(`💰 Gems Saat Ini: ${currentGems}`);
-        
-        // Logika pemeriksaan waktu klaim
         const nextClaimTime = new Date(nextClaimTimestampMs);
         
+        console.log(`💰 Gems Saat Ini: ${currentGems}`);
         console.log(`🕒 Klaim Berikutnya Dijadwalkan: ${formatTime(nextClaimTimestampMs)}`);
         
         if (nextClaimTime > now) {
+            // Belum waktunya klaim
             const timeDifferenceMs = nextClaimTime.getTime() - now.getTime();
             const totalSeconds = Math.floor(timeDifferenceMs / 1000);
             
             const hours = Math.floor(totalSeconds / 3600);
             const minutes = Math.floor((totalSeconds % 3600) / 60);
-            const seconds = totalSeconds % 60;
             
-            console.log("------------------------------------------------");
-            console.log(`🛑 TIDAK SIAP KLAIM. Waktu tunggu tersisa: ${hours} jam, ${minutes} menit, ${seconds} detik.`);
+            console.log(`🛑 TIDAK SIAP KLAIM. Waktu tunggu tersisa: ${hours} jam, ${minutes} menit.`);
             return;
         }
         
@@ -139,18 +126,15 @@ async function checkAndClaimGems() {
 
         if (claimResponse.status === 429) {
             console.error("🛑 KLAIM DITOLAK (429 Too Many Requests). Cooldown belum selesai.");
-            console.log("Pesan Server:", claimData);
             return;
         }
         if (!claimResponse.ok) {
             console.error(`❌ Error HTTP ${claimResponse.status} saat klaim.`);
-            console.log("Pesan Server:", claimData);
             return;
         }
         
         const newNextClaimTimestampMs = claimData.user.nextFreeGemsAt;
         
-        console.log("------------------------------------------------");
         console.log("🎉 KLAIM BERHASIL!");
         console.log(`⭐ Gems Baru Anda: ${claimData.user.gems}`);
         console.log(`🔄 Waktu Klaim Berikutnya Diperbarui ke: ${formatTime(newNextClaimTimestampMs)}`);
@@ -160,7 +144,21 @@ async function checkAndClaimGems() {
     }
 }
 
-// --- JALANKAN FUNGSI UTAMA ---
-checkAndClaimGems();
+/**
+ * Fungsi utama untuk menjalankan semua akun secara berurutan.
+ */
+async function runAllAccounts() {
+    const accounts = loadAccounts();
+    if (!accounts) return;
 
-// --- AKHIR FILE ---
+    for (const account of accounts) {
+        // Tunggu hingga setiap akun selesai diproses sebelum melanjutkan ke akun berikutnya
+        await processAccount(account);
+        // Tambahkan jeda singkat antar akun untuk menghindari server overload
+        await new Promise(resolve => setTimeout(resolve, 5000)); 
+    }
+    console.log(`\n--- Selesai memproses ${accounts.length} akun. ---`);
+}
+
+// --- JALANKAN FUNGSI UTAMA ---
+runAllAccounts();
