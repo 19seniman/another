@@ -1,6 +1,7 @@
-// Menggunakan require() untuk modul di Node.js
+// --- claimBot.js ---
+
 const fs = require('fs');
-const fetch = require('node-fetch'); // Perlu instalasi: npm install node-fetch
+const fetch = require('node-fetch'); 
 
 // --- Konfigurasi File dan URL ---
 const TOKEN_FILE = "token.txt";
@@ -19,7 +20,6 @@ function loadAuthToken() {
             console.error("Pastikan Anda telah membuat file dan meletakkan token Anda di dalamnya.");
             return null;
         }
-        // Menggunakan readFileSync untuk membaca file secara sinkron (langsung)
         const token = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
         if (!token) {
             console.error(`❌ ERROR: File '${TOKEN_FILE}' kosong.`);
@@ -33,14 +33,18 @@ function loadAuthToken() {
 }
 
 /**
- * Membuat dictionary header standar dengan Authorization Token.
- * @param {string} authToken Token otentikasi.
+ * Membuat objek Header, mengirim token melalui Cookie.
+ * @param {string} authToken Nilai dari __Secure-authjs.session-token.
  * @returns {object} Objek Header.
  */
 function getHeaders(authToken) {
+    // --- PERBAIKAN 401: Menggunakan Header 'Cookie' ---
+    const sessionCookie = `__Secure-authjs.session-token=${authToken}`;
+    
     return {
-        // Menggunakan Bearer Token sebagai praktik terbaik
-        'Authorization': `Bearer ${authToken}`, 
+        // PERUBAHAN KRUSIAL: Kirim token melalui header 'Cookie'
+        'Cookie': sessionCookie, 
+        
         'Accept': 'application/json',
         'Content-Type': 'application/json',
         'User-Agent': 'ScriptKlaimGemsAmanJS/1.0',
@@ -51,8 +55,6 @@ function getHeaders(authToken) {
 
 /**
  * Mengonversi timestamp milidetik ke string waktu yang mudah dibaca.
- * @param {number} timestampMs Timestamp dalam milidetik.
- * @returns {string} String waktu yang diformat.
  */
 function formatTime(timestampMs) {
     return new Date(timestampMs).toLocaleString('id-ID', {
@@ -76,21 +78,24 @@ async function checkAndClaimGems() {
     const now = new Date();
     console.log(`[${formatTime(now.getTime())}] Memulai pengecekan status...`);
     
-    // --- 1. MEMERIKSA STATUS AKUN ---
+    // --- 1. MEMERIKSA STATUS AKUN (/api/account) ---
     let currentGems = 0;
     
     try {
         const response = await fetch(ACCOUNT_URL, { headers: HEADERS });
+        
+        if (response.status === 401) {
+            console.error("❌ GAGAL: Error HTTP 401 (Unauthorized). Token Anda kemungkinan tidak valid, kedaluwarsa, atau format Cookie salah.");
+            return;
+        }
         if (!response.ok) {
-            // Tangani status error HTTP (4xx/5xx)
-            console.error(`❌ GAGAL: Error HTTP ${response.status} saat memeriksa akun. Pastikan token valid.`);
+            console.error(`❌ GAGAL: Error HTTP ${response.status} saat memeriksa akun.`);
             return;
         }
         
         const data = await response.json();
         const accountData = data.user || {};
         
-        // Ekstrak data krusial
         currentGems = accountData.gems || 0;
         const nextClaimTimestampMs = accountData.nextFreeGemsAt;
         
@@ -120,7 +125,7 @@ async function checkAndClaimGems() {
         return;
     }
 
-    // --- 2. MELAKUKAN KLAIM JIKA SUDAH SIAP ---
+    // --- 2. MELAKUKAN KLAIM JIKA SUDAH SIAP (/api/claim_free_gems) ---
     console.log("\n--- ✅ SIAP KLAIM. Mencoba mengirim permintaan klaim... ---");
     const payload = JSON.stringify({}); 
     
@@ -133,13 +138,13 @@ async function checkAndClaimGems() {
         
         const claimData = await claimResponse.json();
 
+        if (claimResponse.status === 429) {
+            console.error("🛑 KLAIM DITOLAK (429 Too Many Requests). Cooldown belum selesai.");
+            console.log("Pesan Server:", claimData);
+            return;
+        }
         if (!claimResponse.ok) {
-            // Tangani error spesifik, seperti 429 Too Many Requests
-            if (claimResponse.status === 429) {
-                console.error("🛑 KLAIM DITOLAK (429 Too Many Requests). Cooldown belum selesai.");
-            } else {
-                console.error(`❌ Error HTTP ${claimResponse.status} saat klaim:`);
-            }
+            console.error(`❌ Error HTTP ${claimResponse.status} saat klaim.`);
             console.log("Pesan Server:", claimData);
             return;
         }
