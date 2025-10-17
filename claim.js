@@ -160,5 +160,3 @@ async function runAllAccounts() {
 
 // --- JALANKAN FUNGSI UTAMA ---
 runAllAccounts();
-
-apakah script ini menjalankan secara otomatis setiap 24 jam?
